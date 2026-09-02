@@ -27,7 +27,7 @@
 </style>
 </head>
 <body>
-<div id="app-root" style="position:relative;min-height:100dvh;background:radial-gradient(120% 80% at 50% -10%, #33211B 0%, #1B1210 45%, #140E0C 100%);color:#F4EAE0;font-family:Outfit,system-ui,sans-serif;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none;padding:0 0 40px">
+<div id="app-root" style="position:relative;min-height:100dvh;background:radial-gradient(120% 80% at 50% -10%, #33211B 0%, #1B1210 45%, #140E0C 100%);color:#F4EAE0;font-family:Outfit,system-ui,sans-serif;overflow:hidden;touch-action:pan-y;user-select:none;-webkit-user-select:none;padding:0 0 40px">
 
   <div style="position:absolute;top:-140px;left:50%;transform:translateX(-50%);width:520px;height:320px;background:radial-gradient(closest-side, rgba(233,166,162,.22), transparent);pointer-events:none;animation:fd-glow 9s ease-in-out infinite"></div>
 
@@ -1253,7 +1253,7 @@ function bindItemsRefs() {
   if (backBtn) {
     const goBack = () => { state.view = 'cats'; state.cat = null; state.sliced = {}; render(); };
     // Belt-and-suspenders: the whole page has its own pointer-drag "slicing" layer
-    // (touch-action:none on #app-root), so don't rely on native click synthesis alone.
+    // (touch-action:pan-y on #app-root), so don't rely on native click synthesis alone.
     backBtn.addEventListener('pointerdown', e => e.stopPropagation());
     backBtn.addEventListener('pointerup', e => { e.stopPropagation(); goBack(); });
   }
