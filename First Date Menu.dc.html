@@ -271,19 +271,23 @@ function itemHalfContent(view) {
     `<div style="font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:rgba(224,164,92,.7)">${view.capTxt}</div>`;
 }
 
+/* Animated cut-gesture hint — shown fresh on the first card of every
+   screen (categories on load/return, items on entering a category) so
+   the swipe-to-cut affordance is always taught, not just once ever.
+   Disappears the moment any card on that screen gets cut. */
+function swipeHintHTML(radius) {
+  return `<div data-swipe-hint style="position:absolute;inset:0;border-radius:${radius}px;overflow:hidden;pointer-events:none">
+    <div style="position:absolute;width:26px;height:26px;margin:-13px 0 0 -13px;border-radius:50%;background:radial-gradient(circle,rgba(244,234,224,.95),rgba(244,234,224,0) 70%);animation:fd-hint-move 2.6s ease-in-out .6s infinite"></div>
+  </div>`;
+}
+
 function catsViewHTML() {
-  let hintSeen = true;
-  try { hintSeen = localStorage.getItem('fd_swipe_hint_seen') === '1'; } catch (e) {}
   const cards = CATS.map((c, i) => {
     const view = { name: c.name, note: c.note };
     const inDelay = (i * 0.06) + 's', bobDelay = (i * 0.7) + 's';
     const bob = CONFIG.floating === false ? 'paused' : 'running';
     const halfStyle = `position:absolute;inset:0;transition:transform .55s cubic-bezier(.2,.85,.25,1),opacity .55s ease;border-radius:20px;background:linear-gradient(158deg,#2A1B16 0%,#1C1310 100%);border:1px solid rgba(224,164,92,.3);box-shadow:0 18px 40px -24px rgba(0,0,0,.9);display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:8px;padding:16px 16px 22px;text-align:center`;
-    const swipeHint = (i === 0 && !hintSeen)
-      ? `<div data-swipe-hint style="position:absolute;inset:0;border-radius:20px;overflow:hidden;pointer-events:none">
-          <div style="position:absolute;width:26px;height:26px;margin:-13px 0 0 -13px;border-radius:50%;background:radial-gradient(circle,rgba(244,234,224,.95),rgba(244,234,224,0) 70%);animation:fd-hint-move 2.6s ease-in-out .6s infinite"></div>
-        </div>`
-      : '';
+    const swipeHint = i === 0 ? swipeHintHTML(20) : '';
     return `
     <div data-cat-wrap="${c.id}" style="position:relative;height:224px;overflow:hidden;border-radius:20px;animation:fd-in .5s ease-out both;animation-delay:${inDelay}">
       <div style="position:absolute;inset:0;border-radius:20px;background:linear-gradient(160deg,#3A241D,#22140F);border:1px solid rgba(233,166,162,.35);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px">
@@ -318,6 +322,7 @@ function itemsViewHTML(catId) {
     const inDelay = (i * 0.05) + 's', bobDelay = (i * 0.55) + 's';
     const bob = CONFIG.floating === false ? 'paused' : 'running';
     const halfStyle = `position:absolute;inset:0;transition:transform .55s cubic-bezier(.2,.85,.25,1),opacity .55s ease;border-radius:16px;background:linear-gradient(158deg,#241814 0%,#191110 100%);border:1px solid rgba(244,234,224,.14);box-shadow:0 16px 34px -22px rgba(0,0,0,.9);display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:6px;padding:14px 14px 20px;text-align:center`;
+    const swipeHint = i === 0 ? swipeHintHTML(16) : '';
     return `
     <div data-item-wrap="${id}" style="position:relative;height:248px;overflow:hidden;border-radius:16px;animation:fd-in .45s ease-out both;animation-delay:${inDelay}">
       <div style="position:absolute;inset:0;border-radius:16px;background:linear-gradient(150deg,#4A2C22,#26160F);border:1px solid rgba(224,164,92,.45);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:14px;text-align:center">
@@ -333,6 +338,7 @@ function itemsViewHTML(catId) {
           <div style="position:absolute;left:30%;right:30%;bottom:2px;height:9px;border-radius:50%;background:radial-gradient(closest-side,rgba(0,0,0,.5),transparent)"></div>
         </div>
       </div>
+      ${swipeHint}
     </div>`;
   }).join('');
   return `
@@ -418,8 +424,7 @@ function render() {
   mountAllFigs();
 }
 
-function markSwipeHintSeen() {
-  try { localStorage.setItem('fd_swipe_hint_seen', '1'); } catch (e) {}
+function hideSwipeHint() {
   const hintEl = mainEl.querySelector('[data-swipe-hint]');
   if (hintEl) hintEl.remove();
 }
@@ -427,7 +432,7 @@ function markSwipeHintSeen() {
 function slice(id) {
   if (state.sliced[id]) return;
   state.sliced[id] = true;
-  markSwipeHintSeen();
+  hideSwipeHint();
   const big = isCatId(id);
   const dy = big ? 76 : 68, dx = big ? 24 : 20;
   const pair = halfRefs.get(id);
