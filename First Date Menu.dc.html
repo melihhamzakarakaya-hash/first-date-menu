@@ -401,13 +401,28 @@ function bindItemsRefs() {
 function isCatId(id) { return CATS.some(c => c.id === id); }
 
 /* Every card's floating figure is a cached static snapshot (see
-   renderSnapshot/mountFig above) — cheap enough to just mount them all
-   right after a render, no viewport windowing needed. */
+   renderSnapshot/mountFig above) — mounting an already-cached one is
+   cheap (just an <img src>), but the FIRST time a given item is seen,
+   renderSnapshot has to build its THREE.Group and do a real WebGL
+   render, which isn't free. Opening a category with many still-uncached
+   items would otherwise run all of those renders back-to-back in one
+   synchronous burst — on a phone that's exactly the kind of freeze that
+   reads as "kasma". Spreading the work across animation frames (small
+   time-boxed batches, yielding in between) keeps each frame short
+   enough for the browser to stay responsive while items pop in. */
 function mountAllFigs() {
-  figSlotRefs.forEach((slot, id) => {
-    const modelKey = modelKeyFor(id);
-    if (modelKey) mountFig(slot, modelKey);
-  });
+  const entries = Array.from(figSlotRefs);
+  let i = 0;
+  function step() {
+    const deadline = performance.now() + 8; // ms budget per frame, well under the 16ms frame budget
+    while (i < entries.length && performance.now() < deadline) {
+      const [id, slot] = entries[i++];
+      const modelKey = modelKeyFor(id);
+      if (modelKey) mountFig(slot, modelKey);
+    }
+    if (i < entries.length) requestAnimationFrame(step);
+  }
+  step();
 }
 
 let catTransitionTimer = null;
@@ -478,6 +493,14 @@ function slice(id) {
 
 /* pointer slicing */
 let dragging = false, pts = [], fadeRaf = null;
+// Card rects, snapshotted once per gesture (onDown) instead of read on every
+// pointermove. Reading getBoundingClientRect() for every card on every move
+// forces a synchronous layout right after paint()'s DOM write just above it
+// — classic layout thrashing, and onMove can fire many times a second while
+// dragging, so this was very likely the actual source of mobile stutter
+// during the core cut gesture. Cards don't move mid-swipe, so one snapshot
+// at gesture start is all that's needed.
+let rectCache = new Map();
 const bladeEl = document.getElementById('blade-line');
 function paint() { if (bladeEl) bladeEl.setAttribute('points', pts.map(p => p[0] + ',' + p[1]).join(' ')); }
 function fadeStep() {
@@ -500,7 +523,15 @@ function hitsRect(a, b, r) {
   for (let i = 0; i < 4; i++) if (seg(a, b, c[i], c[(i + 1) % 4])) return true;
   return false;
 }
-function onDown(e) { dragging = true; pts = [[e.clientX, e.clientY]]; paint(); }
+function onDown(e) {
+  dragging = true;
+  pts = [[e.clientX, e.clientY]];
+  rectCache.clear();
+  for (const [id, el] of wrapRefs) {
+    if (el && el.isConnected) rectCache.set(id, el.getBoundingClientRect());
+  }
+  paint();
+}
 function onMove(e) {
   if (!dragging) return;
   const p = [e.clientX, e.clientY];
@@ -510,10 +541,8 @@ function onMove(e) {
   paint();
   if (!prev) return;
   if (Math.hypot(p[0] - prev[0], p[1] - prev[1]) < 4) return;
-  for (const [id, el] of wrapRefs) {
+  for (const [id, r] of rectCache) {
     if (state.sliced[id]) continue;
-    if (!el || !el.isConnected) continue;
-    const r = el.getBoundingClientRect();
     const pad = 10;
     if (hitsRect(prev, p, { left: r.left + pad, right: r.right - pad, top: r.top + pad, bottom: r.bottom - pad })) {
       slice(id);
