@@ -703,7 +703,7 @@ reg(() => { // Bal Kaymak
   k.position.set(-0.022, 0.014, 0.004); g.add(k);
   const b = sph(0.026, mat('bal', 0xD79A26, { roughness: 0.28 }), 'Bal_Kaymak_bal', 26);
   b.scale.y = 0.30; b.position.set(0.028, 0.010, -0.004); g.add(b);
-  const comb = box(0.026, 0.010, 0.026, mat('bal_petek', 0xE0A63A, { roughness: 0.4 }), 'Bal_Kaymak_petek');
+  const comb = box(0.026, 0.010, 0.026, mat('bal_kaymak_petek', 0xE0A63A, { roughness: 0.4 }), 'Bal_Kaymak_petek');
   comb.position.set(0.028, 0.014, -0.004); comb.rotation.y = 0.3; g.add(comb);
   return g;
 });
@@ -881,77 +881,80 @@ function buildById(id) {
   return i >= 0 && FACTS[i] ? FACTS[i]() : null;
 }
 
-/* ====================== 3D mount helper (from model.html) ====================== */
-function mount3D(container, id) {
-  const model = buildById(id) || buildById('Latte');
-  if (!model) return null;
-  const scene = new THREE.Scene();
-  const pivot = new THREE.Group();
-  scene.add(pivot);
+/* ====================== 3D snapshot helper ======================
+   One WebGL context, reused for the whole page, stamps each item's model
+   to a small static PNG the first time it's needed and caches it by id.
+   Cards then just show a plain <img> — no per-card renderer, no
+   requestAnimationFrame loop, no live GL context to lose. A previous
+   version gave every visible card its own live WebGLRenderer; browsers
+   cap concurrent WebGL contexts (commonly ~8–16), and creating/destroying
+   them on every scroll tick was both the stutter and the reason some
+   previews silently never appeared (a context request that overflows the
+   budget just fails). Rendering once to an image sidesteps both. */
+const SNAP_W = 320, SNAP_H = 256;
+let sharedRenderer = null;
+function getSharedRenderer() {
+  if (sharedRenderer) return sharedRenderer;
+  sharedRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+  sharedRenderer.setPixelRatio(1);
+  sharedRenderer.setSize(SNAP_W, SNAP_H, false);
+  sharedRenderer.toneMapping = THREE.ACESFilmicToneMapping;
+  sharedRenderer.toneMappingExposure = 1.1;
+  return sharedRenderer;
+}
 
-  const bbox = new THREE.Box3().setFromObject(model);
-  const center = bbox.getCenter(new THREE.Vector3());
-  const size = bbox.getSize(new THREE.Vector3());
-  model.position.sub(center);
-  model.position.y += size.y * 0.06;
-  pivot.add(model);
+const snapshotCache = new Map(); // model id -> data URL (or null if it failed)
 
-  const renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true, powerPreference: 'low-power' });
-  renderer.setPixelRatio(1); // these thumbnails render at ~150x120px — extra device pixels are wasted cost
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.1;
-  container.appendChild(renderer.domElement);
+function renderSnapshot(id) {
+  if (snapshotCache.has(id)) return snapshotCache.get(id);
+  let url = null;
+  try {
+    const model = buildById(id) || buildById('Latte');
+    if (model) {
+      const scene = new THREE.Scene();
+      const bbox = new THREE.Box3().setFromObject(model);
+      const center = bbox.getCenter(new THREE.Vector3());
+      const size = bbox.getSize(new THREE.Vector3());
+      model.position.sub(center);
+      model.position.y += size.y * 0.06;
+      scene.add(model);
 
-  const camera = new THREE.PerspectiveCamera(30, 1, 0.005, 20);
-  const radius = Math.max(size.x, size.y, size.z) * 0.62;
-  const dist = radius / Math.tan((camera.fov * Math.PI / 180) / 2) * 1.35;
-  camera.position.set(dist * 0.42, dist * 0.46, dist * 0.78);
-  camera.lookAt(0, 0, 0);
+      const renderer = getSharedRenderer();
+      const camera = new THREE.PerspectiveCamera(30, SNAP_W / SNAP_H, 0.005, 20);
+      const radius = Math.max(size.x, size.y, size.z) * 0.62;
+      const dist = radius / Math.tan((camera.fov * Math.PI / 180) / 2) * 1.35;
+      camera.position.set(dist * 0.42, dist * 0.46, dist * 0.78);
+      camera.lookAt(0, 0, 0);
 
-  scene.add(new THREE.HemisphereLight(0xF6E3D2, 0x2A1A14, 1.15));
-  const key = new THREE.DirectionalLight(0xFFF1DF, 2.5);
-  key.position.set(0.4, 0.7, 0.5); scene.add(key);
-  const fill = new THREE.DirectionalLight(0xE9A6A2, 0.85);
-  fill.position.set(-0.6, 0.25, -0.4); scene.add(fill);
-  const rimL = new THREE.DirectionalLight(0xE0A45C, 1.15);
-  rimL.position.set(-0.25, 0.5, -0.8); scene.add(rimL);
+      scene.add(new THREE.HemisphereLight(0xF6E3D2, 0x2A1A14, 1.15));
+      const key = new THREE.DirectionalLight(0xFFF1DF, 2.5);
+      key.position.set(0.4, 0.7, 0.5); scene.add(key);
+      const fill = new THREE.DirectionalLight(0xE9A6A2, 0.85);
+      fill.position.set(-0.6, 0.25, -0.4); scene.add(fill);
+      const rimL = new THREE.DirectionalLight(0xE0A45C, 1.15);
+      rimL.position.set(-0.25, 0.5, -0.8); scene.add(rimL);
 
-  function resize() {
-    const w = container.clientWidth || 160, h = container.clientHeight || 104;
-    renderer.setSize(w, h);
-    camera.aspect = w / h;
-    camera.updateProjectionMatrix();
-  }
-  const ro = new ResizeObserver(resize);
-  ro.observe(container);
-  resize();
-
-  const FRAME_MS = 1000 / 30; // cap each thumbnail to ~30fps — a slow rotation doesn't need 60
-  let last = performance.now(), raf = null;
-  function tick(now) {
-    raf = requestAnimationFrame(tick);
-    const elapsed = now - last;
-    if (elapsed < FRAME_MS) return;
-    const dt = Math.min(elapsed / 1000, 0.05);
-    last = now;
-    pivot.rotation.y += dt * 0.5;
-    renderer.render(scene, camera);
-  }
-  raf = requestAnimationFrame(tick);
-  return {
-    dispose() {
-      cancelAnimationFrame(raf);
-      ro.disconnect();
-      renderer.dispose();
-      renderer.forceContextLoss();
-      container.innerHTML = '';
+      renderer.render(scene, camera);
+      url = renderer.domElement.toDataURL('image/png');
+      scene.traverse(o => { if (o.isMesh && o.geometry) o.geometry.dispose(); });
     }
-  };
+  } catch (e) { console.error('[snapshot]', id, e); }
+  snapshotCache.set(id, url);
+  return url;
+}
+
+function mountFig(container, id) {
+  const url = renderSnapshot(id);
+  if (!url || container.firstChild) return;
+  const img = document.createElement('img');
+  img.src = url;
+  img.alt = '';
+  img.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:contain';
+  container.appendChild(img);
 }
 
 /* ====================== app data (from First Date Menu.dc.html) ====================== */
 const CONFIG = { revealPrices: false, floating: true, address: 'Kordon Cad. No 14, Alsancak · İzmir', instagram: '@firstdate.cafe' };
-const MAXLIVE = 4; // concurrent live WebGL scenes — each is its own renderer + render loop, keep this low
 
 const CATS = [
   { id:'sicak', name:'Sıcak İçecekler', note:'kahve · çay', items:[
@@ -1224,7 +1227,7 @@ const state = { view: 'cats', cat: null, sliced: {} };
 const wrapRefs = new Map();
 const halfRefs = new Map();
 const figRefs = new Map();      // id -> outer floating-figure wrapper (transform/opacity + bob pause)
-const figSlotRefs = new Map();  // id -> inner mount3D target
+const figSlotRefs = new Map();  // id -> inner snapshot-<img> mount target
 const mainEl = document.getElementById('app-main');
 
 function bindCatsRefs() {
@@ -1258,66 +1261,20 @@ function bindItemsRefs() {
 
 function isCatId(id) { return CATS.some(c => c.id === id); }
 
-/* ---- live 3D-figure windowing: only the MAXLIVE cards nearest the viewport
-   center actually mount a WebGL scene, matching the source design's own
-   scroll-based recount() — keeps concurrent GL contexts bounded no matter
-   how large the menu grows. ---- */
-let liveIds = new Set();
-const liveMounts = new Map(); // id -> mount3D handle
-
-function mountFig(id) {
-  if (liveMounts.has(id)) return;
-  const slot = figSlotRefs.get(id);
-  if (!slot) return;
-  const modelKey = modelKeyFor(id);
-  if (!modelKey) return;
-  const handle = mount3D(slot, modelKey);
-  if (handle) liveMounts.set(id, handle);
-}
-function disposeFig(id) {
-  const handle = liveMounts.get(id);
-  if (!handle) return;
-  try { handle.dispose(); } catch (e) {}
-  liveMounts.delete(id);
-}
-function disposeAllFigs() {
-  liveMounts.forEach(h => { try { h.dispose(); } catch (e) {} });
-  liveMounts.clear();
-  liveIds = new Set();
-}
-
-function recount() {
-  const mid = window.innerHeight / 2;
-  const cand = [];
-  wrapRefs.forEach((el, id) => {
-    if (!el || !el.isConnected) return;
-    const r = el.getBoundingClientRect();
-    if (r.bottom < -200 || r.top > window.innerHeight + 200) return;
-    cand.push([id, Math.abs(r.top + r.height / 2 - mid)]);
+/* Every card's floating figure is a cached static snapshot (see
+   renderSnapshot/mountFig above) — cheap enough to just mount them all
+   right after a render, no viewport windowing needed. */
+function mountAllFigs() {
+  figSlotRefs.forEach((slot, id) => {
+    const modelKey = modelKeyFor(id);
+    if (modelKey) mountFig(slot, modelKey);
   });
-  cand.sort((a, b) => a[1] - b[1]);
-  const next = new Set(cand.slice(0, MAXLIVE).map(c => c[0]));
-  liveIds.forEach(id => { if (!next.has(id) || state.sliced[id]) disposeFig(id); });
-  liveIds = next;
-  liveIds.forEach(id => { if (!state.sliced[id]) mountFig(id); });
 }
-// Debounced, not just rAF-throttled: mounting/disposing WebGL contexts is the
-// expensive part, so we wait for scrolling to actually settle instead of
-// recomputing on every scroll tick (that churn was the main stutter source).
-let recountDebounce = null;
-function scheduleRecount(immediate) {
-  if (recountDebounce) clearTimeout(recountDebounce);
-  if (immediate) { recountDebounce = null; recount(); return; }
-  recountDebounce = setTimeout(() => { recountDebounce = null; recount(); }, 150);
-}
-addEventListener('scroll', () => scheduleRecount(false), { passive: true });
-addEventListener('resize', () => scheduleRecount(false));
 
 let catTransitionTimer = null;
 
 function render() {
   if (catTransitionTimer) { clearTimeout(catTransitionTimer); catTransitionTimer = null; }
-  disposeAllFigs();
   if (state.view === 'cats') {
     mainEl.innerHTML = catsViewHTML();
     bindCatsRefs();
@@ -1325,7 +1282,7 @@ function render() {
     mainEl.innerHTML = itemsViewHTML(state.cat);
     bindItemsRefs();
   }
-  scheduleRecount(true);
+  mountAllFigs();
 }
 
 function slice(id) {
@@ -1345,17 +1302,12 @@ function slice(id) {
     if (fig.parentElement) fig.parentElement.style.animationPlayState = 'paused';
   }
   if (big) {
-    disposeAllFigs();
     if (catTransitionTimer) clearTimeout(catTransitionTimer);
     catTransitionTimer = setTimeout(() => {
       catTransitionTimer = null;
       state.view = 'items'; state.cat = id; state.sliced = {};
       render();
     }, 480);
-  } else {
-    disposeFig(id);
-    liveIds.delete(id);
-    scheduleRecount(true);
   }
 }
 
