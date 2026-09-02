@@ -295,8 +295,8 @@ function catsViewHTML() {
         <div style="font-size:11px;letter-spacing:.28em;text-transform:uppercase;color:rgba(244,234,224,.55)">ürün</div>
       </div>
       <div style="position:absolute;inset:0;animation:fd-bob 6.5s ease-in-out infinite;animation-delay:${bobDelay};animation-play-state:${bob}">
-        <div data-cat-half="${c.id}" data-idx="0" style="${halfStyle};clip-path:polygon(0 0,38% 0,62% 100%,0 100%);transform:none;opacity:1">${catHalfContent(view)}</div>
-        <div data-cat-half="${c.id}" data-idx="1" style="${halfStyle};clip-path:polygon(38% 0,100% 0,100% 100%,62% 100%);transform:none;opacity:1">${catHalfContent(view)}</div>
+        <div data-cat-half="${c.id}" data-idx="0" style="${halfStyle};transform:none;opacity:1">${catHalfContent(view)}</div>
+        <div data-cat-half="${c.id}" data-idx="1" style="${halfStyle};transform:none;opacity:1">${catHalfContent(view)}</div>
         <div data-fig="${c.id}" style="position:absolute;left:0;right:0;top:12px;height:122px;transform:none;opacity:1;transition:transform .55s cubic-bezier(.2,.85,.25,1),opacity .5s ease;pointer-events:none">
           <div data-fig-slot="${c.id}" style="position:absolute;inset:0"></div>
           <div style="position:absolute;left:30%;right:30%;bottom:2px;height:10px;border-radius:50%;background:radial-gradient(closest-side,rgba(0,0,0,.5),transparent)"></div>
@@ -331,8 +331,8 @@ function itemsViewHTML(catId) {
         <div style="font-size:12px;line-height:1.45;color:rgba(244,234,224,.6);text-wrap:pretty">${it.desc}</div>
       </div>
       <div style="position:absolute;inset:0;animation:fd-bob 5.5s ease-in-out infinite;animation-delay:${bobDelay};animation-play-state:${bob}">
-        <div data-item-half="${id}" data-idx="0" style="${halfStyle};clip-path:polygon(0 0,38% 0,62% 100%,0 100%);transform:none;opacity:1">${itemHalfContent(view)}</div>
-        <div data-item-half="${id}" data-idx="1" style="${halfStyle};clip-path:polygon(38% 0,100% 0,100% 100%,62% 100%);transform:none;opacity:1">${itemHalfContent(view)}</div>
+        <div data-item-half="${id}" data-idx="0" style="${halfStyle};transform:none;opacity:1">${itemHalfContent(view)}</div>
+        <div data-item-half="${id}" data-idx="1" style="${halfStyle};transform:none;opacity:1">${itemHalfContent(view)}</div>
         <div data-fig="${id}" style="position:absolute;left:0;right:0;top:10px;height:116px;transform:none;opacity:1;transition:transform .55s cubic-bezier(.2,.85,.25,1),opacity .5s ease;pointer-events:none">
           <div data-fig-slot="${id}" style="position:absolute;inset:0"></div>
           <div style="position:absolute;left:30%;right:30%;bottom:2px;height:9px;border-radius:50%;background:radial-gradient(closest-side,rgba(0,0,0,.5),transparent)"></div>
@@ -437,12 +437,28 @@ function slice(id) {
   const dy = big ? 76 : 68, dx = big ? 24 : 20;
   const pair = halfRefs.get(id);
   if (pair) {
+    // The diagonal clip only gets applied here, at the moment of cutting —
+    // not in the initial markup. Two independently clip-path'd halves show
+    // a faint seam even when whole (each edge is anti-aliased on its own,
+    // so the "complementary" polygons don't line up pixel-for-pixel), so
+    // the uncut card stays a single un-clipped rectangle and only becomes
+    // two diagonal pieces once it's actually sliced.
     // pointer-events:none once cut — an opacity:0 half otherwise still sits
     // there and can intercept taps meant for whatever's underneath or
     // nearby (e.g. the back button, if the fly-apart animation swings a
     // first-row card up toward the header).
-    if (pair[0]) { pair[0].style.transform = `translate(${-dx}px,${-dy}px) rotate(-8deg)`; pair[0].style.opacity = '0'; pair[0].style.pointerEvents = 'none'; }
-    if (pair[1]) { pair[1].style.transform = `translate(${dx}px,${dy}px) rotate(7deg)`; pair[1].style.opacity = '0'; pair[1].style.pointerEvents = 'none'; }
+    if (pair[0]) {
+      pair[0].style.clipPath = 'polygon(0 0,38% 0,62% 100%,0 100%)';
+      pair[0].style.transform = `translate(${-dx}px,${-dy}px) rotate(-8deg)`;
+      pair[0].style.opacity = '0';
+      pair[0].style.pointerEvents = 'none';
+    }
+    if (pair[1]) {
+      pair[1].style.clipPath = 'polygon(38% 0,100% 0,100% 100%,62% 100%)';
+      pair[1].style.transform = `translate(${dx}px,${dy}px) rotate(7deg)`;
+      pair[1].style.opacity = '0';
+      pair[1].style.pointerEvents = 'none';
+    }
   }
   const fig = figRefs.get(id);
   if (fig) {
