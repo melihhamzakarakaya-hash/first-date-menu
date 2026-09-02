@@ -75,6 +75,7 @@
       overflow: hidden;
     }
     canvas { display: block; outline: none; }
+    :host([hide-toolbar]) .toolbar { display: none; }
     .toolbar {
       position: absolute;
       right: 16px;
@@ -105,7 +106,9 @@
       bottom: 16px;
       max-width: 60%;
       font: 400 12px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      color: rgba(26, 25, 21, 0.55);
+      /* Tuned for this component's current dark-background host page — swap
+         back to a dark tone if this starter is ever re-copied for a light one. */
+      color: rgba(244, 234, 224, 0.55);
       user-select: none;
     }
     .err {

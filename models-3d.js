@@ -1,0 +1,837 @@
+import * as THREE from 'three';
+
+/* ====================== models-3d.js ======================
+   Shared procedural 3D model registry. Every item in the menu is built
+   here once; First Date Menu.dc.html consumes it lazily (one model at a
+   time, cached as a static snapshot per card) and menu-3d.html consumes
+   it eagerly (all 51 at once, for the live gallery grid). A shape or
+   material tweak now only has to be made in this one file. */
+const FACTS = [];
+const reg = (f) => { FACTS.push(f); return f; };
+
+const P = (x, y) => new THREE.Vector2(x, y);
+let seed = 20260901;
+const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+const rr = (a, b) => a + rnd() * (b - a);
+
+const MATS = {};
+function mat(name, color, o = {}) {
+  if (!MATS[name]) MATS[name] = new THREE.MeshStandardMaterial({ name, color, roughness: 0.55, ...o });
+  return MATS[name];
+}
+function glassMat(name, color, opacity, extra = {}) {
+  if (!MATS[name]) MATS[name] = new THREE.MeshPhysicalMaterial({
+    name, color, roughness: 0.07, metalness: 0, transparent: true, opacity,
+    transmission: 0.5, thickness: 0.006, side: THREE.DoubleSide, clearcoat: 0.6, ...extra
+  });
+  return MATS[name];
+}
+
+const PORSELEN = mat('porselen', 0xF7F4EF, { roughness: 0.22, metalness: 0.04, side: THREE.DoubleSide });
+const CAM      = glassMat('cam', 0xE4F0EE, 0.30, { transmission: 0.72, thickness: 0.005, roughness: 0.045, ior: 1.48, clearcoat: 0.9, depthWrite: false });
+const CAM_KENAR= glassMat('cam_kenar', 0xF4FBF9, 0.62, { transmission: 0.28, thickness: 0.002, roughness: 0.04, clearcoat: 1, depthWrite: true });
+const BUZ      = glassMat('buz', 0xE6F5FB, 0.86, { transmission: 0.1, roughness: 0.12, clearcoat: 0.9 });
+const CELIK    = mat('celik', 0xC9CCD0, { roughness: 0.25, metalness: 0.35 });
+const AHSAP    = mat('ahsap', 0x8A6136, { roughness: 0.68 });
+const KREMA    = mat('krema', 0xFFFBF2, { roughness: 0.8 });
+const KOPUK    = mat('sut_kopugu', 0xFBF3E4, { roughness: 0.78 });
+const KAKAO    = mat('kakao_tozu', 0x5A3A22, { roughness: 0.92 });
+const CIKOLATA = mat('cikolata', 0x4B2A17, { roughness: 0.42 });
+const NANE     = mat('nane', 0x336B2C, { roughness: 0.52, side: THREE.DoubleSide });
+const EKMEK    = mat('ekmek', 0xD3A059, { roughness: 0.82 });
+const EKMEK_IC = mat('ekmek_ici', 0xF1E1BC, { roughness: 0.86 });
+const KIZARMIS = mat('kizarmis', 0xC9822F, { roughness: 0.74 });
+const PEYNIR   = mat('peynir', 0xF6E6B0, { roughness: 0.6 });
+const KASAR    = mat('kasar', 0xF0C24E, { roughness: 0.55 });
+const DOMATES  = mat('domates', 0xC2321F, { roughness: 0.45 });
+const SALATALIK= mat('salatalik', 0x6E9B41, { roughness: 0.5 });
+const ZEYTIN   = mat('zeytin', 0x3A3B22, { roughness: 0.4 });
+const SARISI   = mat('yumurta_sarisi', 0xE9A72B, { roughness: 0.4 });
+const AKI      = mat('yumurta_aki', 0xFAF4E6, { roughness: 0.55 });
+const FRAMBUAZ = mat('frambuaz', 0xA31A32, { roughness: 0.36 });
+const TAVUK    = mat('tavuk', 0xC98B3C, { roughness: 0.76 });
+const MARUL    = mat('marul', 0x5C8A31, { roughness: 0.6, side: THREE.DoubleSide });
+
+const nm = (m, n) => { m.name = n; return m; };
+const box = (w, h, d, m, n) => nm(new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m), n);
+const cyl = (rt, rb, h, m, n, s = 32) => nm(new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, h, s), m), n);
+const sph = (r, m, n, s = 20) => nm(new THREE.Mesh(new THREE.SphereGeometry(r, s, Math.round(s * 0.7)), m), n);
+
+function tabak(r, name, m = PORSELEN, thin = false) {
+  const t = thin ? 0.004 : 0.005;
+  const pts = [P(0, 0), P(r * 0.48, 0), P(r * 0.78, t * 1.4), P(r * 0.95, t * 3.2), P(r, t * 4.2),
+               P(r, t * 5), P(r * 0.92, t * 4), P(r * 0.72, t * 2.2), P(r * 0.48, t), P(0, t)];
+  return nm(new THREE.Mesh(new THREE.LatheGeometry(pts, 56), m), name);
+}
+
+const CUP = [[0,0],[0.023,0],[0.0255,0.004],[0.029,0.018],[0.0355,0.045],[0.0415,0.070],[0.0430,0.074],
+             [0.0400,0.074],[0.0330,0.045],[0.0265,0.018],[0.0215,0.007],[0,0.007]];
+function cupMesh(rTop, h, base, name, m = PORSELEN) {
+  const sx = rTop / 0.043, sy = h / 0.074;
+  return nm(new THREE.Mesh(new THREE.LatheGeometry(CUP.map(([x, y]) => P(x * sx, base + y * sy)), 56), m), name);
+}
+
+const TEA = [[0,0],[0.0165,0],[0.0180,0.0035],[0.0135,0.0180],[0.0112,0.0300],[0.0135,0.0420],
+             [0.0195,0.0580],[0.0245,0.0720],[0.0268,0.0790],
+             [0.0250,0.0790],[0.0228,0.0720],[0.0178,0.0580],[0.0118,0.0420],[0.0095,0.0300],
+             [0.0118,0.0180],[0.0160,0.0060],[0,0.0060]];
+const TEA_LIQ = [[0,0.0062],[0.0150,0.0062],[0.0111,0.0180],[0.0089,0.0300],[0.0111,0.0420],
+                 [0.0167,0.0580],[0.0205,0.0690],[0,0.0690]];
+function teaGlass(name, liqColor) {
+  const g = new THREE.Group(); g.name = name;
+  g.add(nm(new THREE.Mesh(new THREE.LatheGeometry(TEA.map(([x, y]) => P(x, y)), 56), CAM), `${name}_govde`));
+  const rim = nm(new THREE.Mesh(new THREE.TorusGeometry(0.0259, 0.0011, 10, 56), CAM_KENAR), `${name}_agiz`);
+  rim.rotation.x = Math.PI / 2; rim.position.y = 0.0790; g.add(rim);
+  if (liqColor) {
+    const lm = mat(`${name}_sivi`, liqColor, { roughness: 0.14, transparent: true, opacity: 0.95 });
+    g.add(nm(new THREE.Mesh(new THREE.LatheGeometry(TEA_LIQ.map(([x, y]) => P(x, y)), 48), lm), `${name}_cay`));
+  }
+  return g;
+}
+
+function straightGlass(r, h, name, m = CAM) {
+  const g = new THREE.Group(); g.name = name;
+  const pts = [P(0,0), P(r*0.86,0), P(r*0.93,0.004), P(r*0.95,0.012), P(r,h*0.8), P(r,h),
+               P(r-0.0028,h), P(r-0.0030,h*0.8), P(r*0.90,0.012), P(r*0.80,0.008), P(0,0.008)];
+  g.add(nm(new THREE.Mesh(new THREE.LatheGeometry(pts, 56), m), `${name}_govde`));
+  const rim = nm(new THREE.Mesh(new THREE.TorusGeometry(r - 0.0014, 0.0016, 10, 56), CAM_KENAR), `${name}_agiz`);
+  rim.rotation.x = Math.PI / 2; rim.position.y = h; g.add(rim);
+  const foot = nm(new THREE.Mesh(new THREE.TorusGeometry(r * 0.90, 0.0018, 10, 48), CAM_KENAR), `${name}_taban`);
+  foot.rotation.x = Math.PI / 2; foot.position.y = 0.002; g.add(foot);
+  return g;
+}
+
+function stemGlass(name, bowl) {
+  const g = new THREE.Group(); g.name = name;
+  const pts = [P(0,0), P(0.031,0), P(0.032,0.004), P(0.006,0.010), P(0.0045,0.055)];
+  bowl.forEach(([x, y]) => pts.push(P(x, y)));
+  g.add(nm(new THREE.Mesh(new THREE.LatheGeometry(pts, 56), CAM), `${name}_govde`));
+  let rx = 0, ry = 0;
+  bowl.forEach(([x, y]) => { if (y > ry || (y === ry && x > rx)) { rx = Math.max(rx, x); ry = Math.max(ry, y); } });
+  const rim = nm(new THREE.Mesh(new THREE.TorusGeometry(rx - 0.0012, 0.0015, 10, 56), CAM_KENAR), `${name}_agiz`);
+  rim.rotation.x = Math.PI / 2; rim.position.y = ry; g.add(rim);
+  const foot = nm(new THREE.Mesh(new THREE.TorusGeometry(0.0295, 0.0018, 10, 48), CAM_KENAR), `${name}_taban`);
+  foot.rotation.x = Math.PI / 2; foot.position.y = 0.002; g.add(foot);
+  return g;
+}
+
+function ice(g, n, rad, y0, y1, size = 0.017) {
+  for (let i = 0; i < n; i++) {
+    const a = rnd() * Math.PI * 2, d = rr(0, rad);
+    const c = box(size, size, size, BUZ, `buz_${i}`);
+    c.position.set(Math.cos(a) * d, rr(y0, y1), Math.sin(a) * d);
+    c.rotation.set(rr(0, 3), rr(0, 3), rr(0, 3));
+    g.add(c);
+  }
+}
+
+function wheel(r, name, kabuk, ic) {
+  const g = new THREE.Group(); g.name = name;
+  g.add(cyl(r, r, 0.0052, kabuk, `${name}_kabuk`, 40));
+  g.add(cyl(r * 0.88, r * 0.88, 0.0058, ic, `${name}_ic`, 40));
+  for (let s = 0; s < 8; s++) {
+    const a = (s / 8) * Math.PI * 2;
+    const seg = box(r * 0.86, 0.006, 0.0009, kabuk, `${name}_bolme_${s}`);
+    seg.position.set(Math.cos(a) * r * 0.44, 0, Math.sin(a) * r * 0.44);
+    seg.rotation.y = -a;
+    g.add(seg);
+  }
+  return g;
+}
+const LIME_K = mat('lime_kabugu', 0x5E8F1E, { roughness: 0.48 });
+const LIME_I = mat('lime_ici', 0xD9E88F, { roughness: 0.42 });
+const LMN_K  = mat('limon_kabugu', 0xE8C33B, { roughness: 0.45 });
+const LMN_I  = mat('limon_ici', 0xF5E9A6, { roughness: 0.42 });
+const PRT_K  = mat('portakal_kabugu', 0xE2751A, { roughness: 0.5 });
+const PRT_I  = mat('portakal_ici', 0xF3A73B, { roughness: 0.45 });
+
+function leafMesh(name, s = 1) {
+  const shape = new THREE.Shape();
+  shape.moveTo(0, 0);
+  shape.bezierCurveTo(0.008, 0.006, 0.010, 0.020, 0, 0.030);
+  shape.bezierCurveTo(-0.010, 0.020, -0.008, 0.006, 0, 0);
+  const g = new THREE.ExtrudeGeometry(shape, { depth: 0.0007, bevelEnabled: false, curveSegments: 14 });
+  const m = nm(new THREE.Mesh(g, NANE), name);
+  m.scale.setScalar(s);
+  return m;
+}
+
+function mintSprig(name, x, y, z, n = 5) {
+  const g = new THREE.Group(); g.name = name;
+  for (let i = 0; i < n; i++) {
+    const l = leafMesh(`${name}_yaprak_${i}`, rr(0.8, 1.1));
+    l.position.set(rr(-0.012, 0.008), rr(-0.006, 0.014), rr(-0.012, 0.012));
+    l.rotation.set(rr(-0.5, 0.5), rnd() * 6.28, rr(-0.6, 0.6));
+    g.add(l);
+  }
+  g.position.set(x, y, z);
+  return g;
+}
+
+function whip(name, r, y, m = KREMA) {
+  const g = new THREE.Group(); g.name = name;
+  const turns = 4;
+  for (let i = 0; i < turns; i++) {
+    const t = i / turns;
+    const rr2 = r * (1 - t * 0.62);
+    const tube = r * (0.30 - t * 0.13);
+    const ring = nm(new THREE.Mesh(new THREE.TorusGeometry(rr2 - tube, tube, 14, 40), m), `${name}_burgu_${i}`);
+    ring.rotation.x = Math.PI / 2;
+    ring.scale.y = 0.8;
+    ring.position.set(Math.cos(i * 2.0) * r * 0.05, y + t * r * 1.15 + tube * 0.4, Math.sin(i * 2.0) * r * 0.05);
+    g.add(ring);
+  }
+  const tip = cyl(0.0009, r * 0.20, r * 0.55, m, `${name}_uc`, 14);
+  tip.position.y = y + r * 1.30;
+  tip.rotation.z = 0.18;
+  g.add(tip);
+  return g;
+}
+
+function mug({ name, rTop = 0.043, h = 0.074, liq = 0x8A5A33, foam = null, art = false,
+               dust = null, saucer = 0.079, cupMat = PORSELEN, topping = null }) {
+  const g = new THREE.Group(); g.name = name;
+  const base = saucer ? 0.0045 : 0;
+  if (saucer) g.add(tabak(saucer, `${name}_tabak`));
+  g.add(cupMesh(rTop, h, base, `${name}_fincan`, cupMat));
+  const hd = nm(new THREE.Mesh(new THREE.TorusGeometry(rTop * 0.44, 0.0048, 16, 40, Math.PI * 1.55), cupMat), `${name}_kulp`);
+  hd.position.set(rTop * 0.84, base + h * 0.62, 0);
+  hd.rotation.z = -Math.PI * 0.42;
+  g.add(hd);
+  const surfY = base + h * 0.885, rS = rTop * 0.875;
+  const liqM = mat(`${name}_sivi`, liq, { roughness: 0.42 });
+  const body = cyl(rS, rTop * 0.6, h * 0.62, liqM, `${name}_icecek`, 40);
+  body.position.y = surfY - h * 0.31;
+  g.add(body);
+  if (foam) {
+    const f = cyl(rS, rS, 0.006, foam === true ? KOPUK : mat(`${name}_kopuk`, foam, { roughness: 0.8 }), `${name}_kopuk`, 40);
+    f.position.y = surfY + 0.002;
+    g.add(f);
+    const dome = sph(rS * 0.92, foam === true ? KOPUK : mat(`${name}_kopuk`, foam, { roughness: 0.8 }), `${name}_kopuk_kubbe`, 24);
+    dome.scale.y = 0.22; dome.position.y = surfY + 0.005;
+    g.add(dome);
+  }
+  if (art) {
+    const a = new THREE.Group(); a.name = `${name}_latte_art`;
+    for (let i = 0; i < 7; i++) {
+      const t = i / 6, r = rS * (0.78 - t * 0.58);
+      const l = nm(new THREE.Mesh(new THREE.TorusGeometry(r, 0.0022, 8, 32, Math.PI * 0.95), KOPUK), `${name}_art_${i}`);
+      l.rotation.order = 'YXZ'; l.rotation.x = -Math.PI / 2; l.rotation.y = Math.PI * 0.525;
+      l.position.set(-rS * 0.5 + t * rS * 1.1, 0, 0);
+      a.add(l);
+    }
+    const tip = sph(0.005, KOPUK, `${name}_art_uc`, 18);
+    tip.scale.set(1.5, 0.3, 1.1); tip.position.x = -rS * 0.62;
+    a.add(tip);
+    a.position.y = surfY + 0.0015; a.rotation.y = 0.4;
+    g.add(a);
+  }
+  if (dust) {
+    const d = cyl(rS * 0.72, rS * 0.72, 0.0012, mat(`${name}_toz`, dust, { roughness: 0.95 }), `${name}_toz`, 36);
+    d.position.y = surfY + (foam ? 0.010 : 0.0016);
+    g.add(d);
+  }
+  if (topping) topping(g, surfY, rS, name);
+  return g;
+}
+
+function cayBardagi({ name, liq, garnish = null }) {
+  const g = new THREE.Group(); g.name = name;
+  g.add(tabak(0.048, `${name}_tabak`));
+  const gl = teaGlass(`${name}_bardak`, liq); gl.position.y = 0.0045; g.add(gl);
+  const spoon = new THREE.Group(); spoon.name = `${name}_kasik`;
+  const sb = nm(new THREE.Mesh(new THREE.SphereGeometry(0.0058, 22, 14, 0, Math.PI * 2, Math.PI * 0.5, Math.PI * 0.5), CELIK), `${name}_kasik_bas`);
+  sb.scale.set(1, 0.40, 1.5); sb.position.set(0, 0.0022, 0.015); spoon.add(sb);
+  const sh = cyl(0.0014, 0.0019, 0.028, CELIK, `${name}_kasik_sap`, 10);
+  sh.rotation.x = Math.PI / 2; sh.position.set(0, 0.0022, -0.006); spoon.add(sh);
+  spoon.position.set(0.030, 0.0105, 0.019); spoon.rotation.set(0.04, -Math.PI / 6, 0.09);
+  g.add(spoon);
+  if (garnish) garnish(g, name);
+  return g;
+}
+
+function uzunBardak({ name, r = 0.034, h = 0.132, liq, layers = null, iceN = 5, straw = null,
+                      rimWheel = null, mint = false, whipTop = false, coaster = false,
+                      crema = null, bubbles = false }) {
+  const g = new THREE.Group(); g.name = name;
+  let y0 = 0;
+  if (coaster) { const c = cyl(0.052, 0.051, 0.006, AHSAP, `${name}_altlik`, 48); c.position.y = 0.003; g.add(c); y0 = 0.006; }
+  const gl = straightGlass(r, h, `${name}_bardak`); gl.position.y = y0; g.add(gl);
+  const top = h * 0.82;
+  if (layers) {
+    let cur = 0.008;
+    layers.forEach(([color, frac], i) => {
+      const hh = (top - 0.008) * frac;
+      const m = mat(`${name}_kat_${i}`, color, { roughness: 0.16, transparent: true, opacity: 0.97 });
+      const c = cyl(r - 0.0048, r - 0.0058, hh, m, `${name}_katman_${i}`, 44);
+      c.position.y = y0 + cur + hh / 2; cur += hh;
+      g.add(c);
+    });
+  } else {
+    const m = mat(`${name}_sivi`, liq, { roughness: 0.16, transparent: true, opacity: 0.96 });
+    const c = cyl(r - 0.0048, r - 0.0058, top - 0.008, m, `${name}_icecek`, 44);
+    c.position.y = y0 + 0.008 + (top - 0.008) / 2;
+    g.add(c);
+  }
+  if (crema) {
+    const f = cyl(r - 0.0048, r - 0.0048, 0.006, mat(`${name}_crema`, crema, { roughness: 0.72 }), `${name}_crema`, 44);
+    f.position.y = y0 + top - 0.003; g.add(f);
+    const dome = sph((r - 0.0048) * 0.94, mat(`${name}_crema`, crema, { roughness: 0.72 }), `${name}_crema_kubbe`, 22);
+    dome.scale.y = 0.16; dome.position.y = y0 + top; g.add(dome);
+  }
+  if (bubbles) {
+    const bg = new THREE.Group(); bg.name = `${name}_kabarciklar`;
+    for (let i = 0; i < 26; i++) {
+      const b = sph(rr(0.0011, 0.0024), BUZ, `${name}_kabarcik_${i}`, 8);
+      const a = rnd() * 6.283, d = rr(0, r - 0.006);
+      b.position.set(Math.cos(a) * d, y0 + rr(0.014, top - 0.008), Math.sin(a) * d);
+      bg.add(b);
+    }
+    g.add(bg);
+  }
+  if (iceN) { const ig = new THREE.Group(); ig.name = `${name}_buzlar`; ice(ig, iceN, r * 0.42, y0 + 0.02, y0 + top - 0.014); g.add(ig);
+    const dg = new THREE.Group(); dg.name = `${name}_yogusma`;
+    const dropM = glassMat('yogusma', 0xFFFFFF, 0.55, { transmission: 0.7, roughness: 0.05, depthWrite: false });
+    for (let i = 0; i < 24; i++) {
+      const d = sph(rr(0.0013, 0.0026), dropM, `${name}_damla_${i}`, 8);
+      const a = rnd() * 6.283;
+      d.position.set(Math.cos(a) * (r + 0.0006), y0 + rr(0.014, h * 0.92), Math.sin(a) * (r + 0.0006));
+      d.scale.set(0.65, 1.5, 0.65);
+      dg.add(d);
+    }
+    g.add(dg);
+  }
+  if (whipTop) g.add(whip(`${name}_krema`, 0.026, y0 + h - 0.004));
+  if (straw) {
+    const s = cyl(0.0035, 0.0035, h * 1.28, mat(`${name}_pipet`, straw, { roughness: 0.35 }), `${name}_pipet`, 16);
+    s.position.set(0.011, y0 + h * 0.72, -0.008); s.rotation.z = -0.18;
+    g.add(s);
+  }
+  if (rimWheel) {
+    const w = wheel(0.019, `${name}_dilim`, rimWheel[0], rimWheel[1]);
+    w.position.set(r - 0.003, y0 + h, 0.004);
+    w.rotation.set(Math.PI / 2, 0, 0.18);
+    g.add(w);
+  }
+  if (mint) g.add(mintSprig(`${name}_nane`, -0.012, y0 + h + 0.012, 0.004, 5));
+  return g;
+}
+
+function dilim({ name, ic, ustRenk, kenar, R = 0.072, ANG = 1.0, H = 0.048, plateR = 0.105, garnish = null }) {
+  const g = new THREE.Group(); g.name = name;
+  g.add(tabak(plateR, `${name}_tabak`));
+  const y0 = 0.005;
+  const sh = new THREE.Shape();
+  sh.moveTo(0, 0); sh.lineTo(R, 0); sh.absarc(0, 0, R, 0, ANG, false); sh.lineTo(0, 0);
+  const mk = (depth, m, n) => {
+    const geo = new THREE.ExtrudeGeometry(sh, { depth, bevelEnabled: true, bevelSize: 0.0014, bevelThickness: 0.0014, bevelSegments: 2, curveSegments: 40 });
+    geo.rotateX(-Math.PI / 2);
+    return nm(new THREE.Mesh(geo, m), n);
+  };
+  const inner = new THREE.Group();
+  const bodyH = H - 0.006;
+  const b = mk(bodyH, mat(`${name}_ic`, ic, { roughness: 0.66 }), `${name}_govde`);
+  b.position.y = y0; inner.add(b);
+  if (kenar) {
+    const CT = 0.0022;
+    const cs = new THREE.Shape();
+    cs.moveTo(R, 0); cs.absarc(0, 0, R, 0, ANG, false);
+    cs.lineTo((R + CT) * Math.cos(ANG), (R + CT) * Math.sin(ANG));
+    cs.absarc(0, 0, R + CT, ANG, 0, true); cs.lineTo(R, 0);
+    const cg = new THREE.ExtrudeGeometry(cs, { depth: bodyH + 0.003, bevelEnabled: false, curveSegments: 48 });
+    cg.rotateX(-Math.PI / 2);
+    const cm = nm(new THREE.Mesh(cg, mat(`${name}_kenar`, kenar, { roughness: 0.58 })), `${name}_dis_kabuk`);
+    cm.position.y = y0; inner.add(cm);
+  }
+  if (ustRenk) {
+    const t = mk(0.006, mat(`${name}_ust`, ustRenk, { roughness: 0.5 }), `${name}_ust_yuzey`);
+    t.position.y = y0 + bodyH - 0.001;
+    const pos = t.geometry.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const y = pos.getY(i);
+      if (y > 0.0055) {
+        const x = pos.getX(i), z = pos.getZ(i), d = Math.hypot(x, z);
+        pos.setY(i, y + Math.sin(d * 145) * 0.0007 + Math.sin(x * 95 + z * 70) * 0.0006 - d * 0.004);
+      }
+    }
+    pos.needsUpdate = true; t.geometry.computeVertexNormals();
+    inner.add(t);
+  }
+  inner.position.set(-R * 0.55, 0, R * 0.30);
+  const slice = new THREE.Group(); slice.name = `${name}_dilim`;
+  slice.add(inner); slice.rotation.y = -2.3;
+  g.add(slice);
+  if (garnish) garnish(g, name, y0);
+  return g;
+}
+
+function frambuazTanesi(name, x, y, z) {
+  const b = new THREE.Group(); b.name = name;
+  for (let j = 0; j < 12; j++) {
+    const a = (j / 12) * Math.PI * 2, ring = j % 2 === 0 ? 0.0054 : 0.0041;
+    const d = sph(0.0029, FRAMBUAZ, `${name}_tane_${j}`, 12);
+    d.position.set(Math.cos(a) * ring, (j % 2) * 0.0031 + 0.0021, Math.sin(a) * ring);
+    b.add(d);
+  }
+  const cap = sph(0.0033, FRAMBUAZ, `${name}_tepe`, 12); cap.position.y = 0.006; b.add(cap);
+  b.position.set(x, y, z);
+  return b;
+}
+
+reg(() => mug({ name: 'Latte', rTop: 0.043, h: 0.074, liq: 0xC79463, art: true }));
+reg(() => mug({ name: 'Cappuccino', rTop: 0.042, h: 0.062, liq: 0xA46F42, foam: true, dust: 0x6B4425, saucer: 0.076 }));
+reg(() => mug({ name: 'Americano', rTop: 0.040, h: 0.072, liq: 0x3B2113, saucer: 0.074 }));
+reg(() => mug({ name: 'Mocha', rTop: 0.042, h: 0.076, liq: 0x462615, saucer: 0.078,
+  topping: (g, y, r, n) => { g.add(whip(`${n}_krema`, 0.022, y + 0.002));
+    const d = cyl(0.016, 0.016, 0.0012, KAKAO, `${n}_kakao`, 24); d.position.y = y + 0.030; g.add(d); } }));
+reg(() => mug({ name: 'Flat_White', rTop: 0.046, h: 0.056, liq: 0xB98552, art: true, saucer: 0.080 }));
+reg(() => cayBardagi({ name: 'Turk_Cayi', liq: 0x9C3A12,
+  garnish: (g, n) => { const s = box(0.010, 0.008, 0.010, PORSELEN, `${n}_seker`); s.position.set(0.032, 0.012, -0.018); s.rotation.y = 0.4; g.add(s); } }));
+reg(() => cayBardagi({ name: 'Yesil_Cay', liq: 0x8FA33A }));
+reg(() => cayBardagi({ name: 'Papatya_Cayi', liq: 0xD9B349,
+  garnish: (g, n) => {
+    const f = new THREE.Group(); f.name = `${n}_papatya`;
+    for (let i = 0; i < 10; i++) { const a = i / 10 * 6.283;
+      const p = sph(0.0034, mat('papatya_beyaz', 0xFCF6E4, { roughness: 0.7 }), `${n}_yaprak_${i}`, 10);
+      p.scale.set(1.6, 0.35, 0.7); p.position.set(Math.cos(a) * 0.0055, 0, Math.sin(a) * 0.0055); p.rotation.y = -a; f.add(p); }
+    const c = sph(0.0026, mat('papatya_gobek', 0xE0A62A, { roughness: 0.6 }), `${n}_gobek`, 12); c.scale.y = 0.6; f.add(c);
+    f.position.set(0.006, 0.0755, 0.004); g.add(f); } }));
+reg(() => cayBardagi({ name: 'Kis_Cayi', liq: 0xA1281C,
+  garnish: (g, n) => {
+    const c = cyl(0.0035, 0.0035, 0.055, mat('tarcin', 0x7A4A22, { roughness: 0.85 }), `${n}_tarcin`, 12);
+    c.position.set(0.008, 0.055, 0.004); c.rotation.z = 0.22; g.add(c);
+    const w = wheel(0.014, `${n}_portakal`, PRT_K, PRT_I); w.position.set(0.026, 0.076, 0.002); w.rotation.set(Math.PI / 2, 0, 0.2); g.add(w); } }));
+reg(() => cayBardagi({ name: 'Adacayi', liq: 0xA8AE5B,
+  garnish: (g, n) => { const l = leafMesh(`${n}_adacayi_yapragi`, 0.9); l.position.set(0.004, 0.074, 0.004); l.rotation.set(0.4, 0.6, 0.2); g.add(l); } }));
+reg(() => mug({ name: 'Sicak_Cikolata', rTop: 0.043, h: 0.076, liq: 0x3E2114, saucer: 0.079,
+  topping: (g, y, r, n) => { for (let i = 0; i < 5; i++) { const a = i / 5 * 6.283;
+    const m = cyl(0.006, 0.006, 0.008, mat('marshmallow', 0xFFF6EE, { roughness: 0.9 }), `${n}_marshmallow_${i}`, 14);
+    m.position.set(Math.cos(a) * 0.016, y + 0.004, Math.sin(a) * 0.016); g.add(m); } } }));
+reg(() => mug({ name: 'Beyaz_Sicak_Cikolata', rTop: 0.043, h: 0.076, liq: 0xF2E3C4, saucer: 0.079,
+  topping: (g, y, r, n) => { g.add(whip(`${n}_krema`, 0.020, y + 0.002));
+    const c = box(0.014, 0.0015, 0.006, mat('beyaz_cikolata', 0xF7EAC6, { roughness: 0.4 }), `${n}_rende`);
+    c.position.set(0.004, y + 0.030, 0.002); c.rotation.set(0.3, 0.5, 0.2); g.add(c); } }));
+reg(() => mug({ name: 'Salep', rTop: 0.043, h: 0.072, liq: 0xF3E7D2, dust: 0x8A5A2E, saucer: 0.079 }));
+
+reg(() => uzunBardak({ name: 'Iced_Latte', layers: [[0x33200F, 0.40], [0xE9D6B4, 0.60]], iceN: 5, straw: 0xE8E2D6, crema: 0xF2E4C8 }));
+reg(() => uzunBardak({ name: 'Iced_Americano', liq: 0x34190B, iceN: 6, straw: 0xE8E2D6, crema: 0x9A6636 }));
+reg(() => uzunBardak({ name: 'Frappe', r: 0.035, h: 0.138, liq: 0xC0A075, iceN: 0, straw: 0xC7452F, crema: 0xEADCC0, whipTop: true }));
+reg(() => uzunBardak({ name: 'Iced_Mocha', layers: [[0x2A150A, 0.55], [0xDCC29B, 0.45]], iceN: 4, whipTop: true, straw: 0xC7452F }));
+reg(() => uzunBardak({ name: 'Cold_Brew', liq: 0x2B150A, iceN: 6, coaster: true, crema: 0x8A5C2E }));
+reg(() => uzunBardak({ name: 'Limonata', liq: 0xF0DC6E, iceN: 4, straw: 0xE8E2D6, rimWheel: [LMN_K, LMN_I], mint: true, bubbles: true }));
+reg(() => uzunBardak({ name: 'Buzlu_Cay', liq: 0xA9531A, iceN: 5, straw: 0xE8E2D6, rimWheel: [LMN_K, LMN_I] }));
+reg(() => uzunBardak({ name: 'Milkshake', r: 0.038, h: 0.128, liq: 0xF0AEBB, iceN: 0, whipTop: true, straw: 0xC7452F }));
+reg(() => { // Meyveli Soda — şişe + bardak
+  const g = new THREE.Group(); g.name = 'Meyveli_Soda';
+  const pts = [P(0,0),P(0.028,0),P(0.030,0.004),P(0.031,0.090),P(0.026,0.108),P(0.013,0.124),P(0.0115,0.150),
+               P(0.0095,0.150),P(0.0110,0.124),P(0.024,0.108),P(0.029,0.090),P(0.028,0.006),P(0,0.006)];
+  const bottleM = glassMat('sise_cami', 0xBBD8C8, 0.34);
+  g.add(nm(new THREE.Mesh(new THREE.LatheGeometry(pts, 48), bottleM), 'Meyveli_Soda_sise'));
+  const liq = cyl(0.0285, 0.0275, 0.086, mat('soda_sivi', 0xE45A79, { roughness: 0.13, transparent: true, opacity: 0.95 }), 'Meyveli_Soda_icecek', 40);
+  liq.position.y = 0.049; g.add(liq);
+  const cap = cyl(0.0125, 0.0125, 0.010, mat('kapak', 0xC0562B, { roughness: 0.4, metalness: 0.2 }), 'Meyveli_Soda_kapak', 24);
+  cap.position.y = 0.153; g.add(cap);
+  return g;
+});
+
+reg(() => dilim({ name: 'San_Sebastian', ic: 0xF0DCA8, ustRenk: 0x5A3216, kenar: 0x9C5A28,
+  garnish: (g, n, y0) => { g.add(frambuazTanesi(`${n}_frambuaz_1`, 0.055, y0, -0.055));
+    g.add(frambuazTanesi(`${n}_frambuaz_2`, 0.030, y0, -0.072)); } }));
+reg(() => dilim({ name: 'Frambuazli_Cheesecake', ic: 0xF7EEDC, ustRenk: 0xC02648, kenar: 0xD8B87C, H: 0.052,
+  garnish: (g, n, y0) => { g.add(frambuazTanesi(`${n}_frambuaz_1`, 0.052, y0, -0.052));
+    g.add(frambuazTanesi(`${n}_frambuaz_2`, 0.028, y0, -0.070)); } }));
+reg(() => { // Brownie
+  const g = new THREE.Group(); g.name = 'Brownie';
+  g.add(tabak(0.100, 'Brownie_tabak'));
+  const b = box(0.070, 0.034, 0.070, mat('brownie', 0x3D2115, { roughness: 0.72 }), 'Brownie_kare');
+  b.position.set(-0.010, 0.022, 0.008); b.rotation.y = 0.25; g.add(b);
+  const top = box(0.071, 0.005, 0.071, mat('brownie_ust', 0x54301D, { roughness: 0.5 }), 'Brownie_ust');
+  top.position.set(-0.010, 0.0405, 0.008); top.rotation.y = 0.25; g.add(top);
+  const sauce = sph(0.028, CIKOLATA, 'Brownie_sos', 24); sauce.scale.y = 0.10; sauce.position.set(0.030, 0.006, -0.028); g.add(sauce);
+  const scoop = sph(0.020, mat('dondurma', 0xF8F0DC, { roughness: 0.85 }), 'Brownie_dondurma', 22);
+  scoop.position.set(0.034, 0.024, -0.030); g.add(scoop);
+  return g;
+});
+reg(() => { // Tiramisu
+  const g = new THREE.Group(); g.name = 'Tiramisu';
+  g.add(tabak(0.100, 'Tiramisu_tabak'));
+  const layers = [[0x6B4A2E, 0.012], [0xF2E3BF, 0.014], [0x6B4A2E, 0.012], [0xF6EBCB, 0.014]];
+  let y = 0.005;
+  layers.forEach(([c, h], i) => {
+    const l = box(0.072, h, 0.056, mat(`tiramisu_kat_${i}`, c, { roughness: 0.66 }), `Tiramisu_katman_${i}`);
+    l.position.set(0, y + h / 2, 0); l.rotation.y = 0.2; g.add(l); y += h;
+  });
+  const dust = box(0.0725, 0.0015, 0.0565, KAKAO, 'Tiramisu_kakao');
+  dust.position.set(0, y + 0.0008, 0); dust.rotation.y = 0.2; g.add(dust);
+  const bean = sph(0.004, CIKOLATA, 'Tiramisu_cikolata', 12); bean.scale.set(1, 0.6, 0.7); bean.position.set(0.022, y + 0.004, -0.016); g.add(bean);
+  return g;
+});
+reg(() => { // Magnolia
+  const g = new THREE.Group(); g.name = 'Magnolia';
+  const pts = [P(0,0),P(0.026,0),P(0.028,0.004),P(0.038,0.058),P(0.040,0.066),P(0.0372,0.066),P(0.0352,0.058),P(0.0255,0.006),P(0,0.006)];
+  g.add(nm(new THREE.Mesh(new THREE.LatheGeometry(pts, 48), glassMat('kase_cami', 0xEFF6F4, 0.3)), 'Magnolia_kase'));
+  const cream = cyl(0.036, 0.027, 0.044, mat('magnolia_krema', 0xF7EFD9, { roughness: 0.78 }), 'Magnolia_krema', 40);
+  cream.position.y = 0.030; g.add(cream);
+  const crumb = cyl(0.036, 0.036, 0.005, mat('biskuvi', 0xC79A5C, { roughness: 0.9 }), 'Magnolia_biskuvi', 40);
+  crumb.position.y = 0.0545; g.add(crumb);
+  for (let i = 0; i < 3; i++) {
+    const b = cyl(0.010, 0.010, 0.005, mat('muz', 0xEFDF9A, { roughness: 0.6 }), `Magnolia_muz_${i}`, 20);
+    b.position.set(Math.cos(i * 2.1) * 0.016, 0.0595, Math.sin(i * 2.1) * 0.016); g.add(b);
+  }
+  return g;
+});
+reg(() => { // Sufle
+  const g = new THREE.Group(); g.name = 'Sufle';
+  g.add(tabak(0.098, 'Sufle_tabak'));
+  const ram = nm(new THREE.Mesh(new THREE.LatheGeometry(
+    [P(0,0.005),P(0.030,0.005),P(0.032,0.009),P(0.036,0.040),P(0.038,0.046),P(0.0352,0.046),P(0.0335,0.040),P(0.0295,0.011),P(0,0.011)], 48), PORSELEN), 'Sufle_kase');
+  g.add(ram);
+  const cake = sph(0.031, mat('sufle', 0x4A2A18, { roughness: 0.68 }), 'Sufle_kek', 26);
+  cake.scale.y = 0.72; cake.position.y = 0.046; g.add(cake);
+  const dust = sph(0.024, mat('pudra_sekeri', 0xFFFFFF, { roughness: 0.95 }), 'Sufle_pudra', 20);
+  dust.scale.y = 0.10; dust.position.y = 0.068; g.add(dust);
+  return g;
+});
+reg(() => { // Profiterol
+  const g = new THREE.Group(); g.name = 'Profiterol';
+  const bowl = nm(new THREE.Mesh(new THREE.LatheGeometry(
+    [P(0,0),P(0.040,0.004),P(0.052,0.016),P(0.058,0.026),P(0.055,0.028),P(0.048,0.018),P(0.036,0.008),P(0,0.006)], 48), PORSELEN), 'Profiterol_kase');
+  g.add(bowl);
+  const spots = [[0,0.020,0],[0.022,0.018,0.014],[-0.020,0.018,0.016],[0.006,0.019,-0.024],[-0.014,0.038,-0.002],[0.012,0.040,0.008]];
+  spots.forEach(([x, y, z], i) => {
+    const p = sph(0.0135, mat('profiterol_hamur', 0xE0BE85, { roughness: 0.75 }), `Profiterol_top_${i}`, 20);
+    p.position.set(x, y, z); g.add(p);
+    const s = sph(0.0138, CIKOLATA, `Profiterol_sos_${i}`, 18);
+    s.scale.set(1, 0.55, 1); s.position.set(x, y + 0.0068, z); g.add(s);
+  });
+  return g;
+});
+
+reg(() => { // Patates Kızartması
+  const g = new THREE.Group(); g.name = 'Patates_Kizartmasi';
+  g.add(tabak(0.100, 'Patates_tabak'));
+  const PAT = mat('patates', 0xE0B44F, { roughness: 0.74 });
+  for (let i = 0; i < 22; i++) {
+    const f = box(0.0085, 0.0085, rr(0.045, 0.075), PAT, `Patates_dilim_${i}`);
+    f.position.set(rr(-0.026, 0.026), 0.010 + rnd() * 0.026, rr(-0.024, 0.024));
+    f.rotation.set(rr(-0.5, 0.5), rnd() * 3.14, rr(-0.5, 0.5));
+    g.add(f);
+  }
+  const cup = cyl(0.017, 0.014, 0.014, PORSELEN, 'Patates_sos_kabi', 24); cup.position.set(0.062, 0.012, -0.030); g.add(cup);
+  const kt = cyl(0.0145, 0.0145, 0.002, mat('ketcap', 0xB4231B, { roughness: 0.35 }), 'Patates_ketcap', 24); kt.position.set(0.062, 0.017, -0.030); g.add(kt);
+  return g;
+});
+reg(() => { // Soğan Halkası
+  const g = new THREE.Group(); g.name = 'Sogan_Halkasi';
+  g.add(tabak(0.098, 'Sogan_tabak'));
+  const RM = mat('sogan_halkasi', 0xD79A45, { roughness: 0.8 });
+  const st = [[0, 0.019, 0, 0.4], [0.004, 0.036, -0.004, 0.9], [-0.006, 0.053, 0.006, 1.6], [0.002, 0.070, 0.002, 2.3]];
+  st.forEach(([x, y, z, r], i) => {
+    const t = nm(new THREE.Mesh(new THREE.TorusGeometry(0.026, 0.0085, 14, 34), RM), `Sogan_halka_${i}`);
+    t.position.set(x, y, z); t.rotation.set(Math.PI / 2 + rr(-0.08, 0.08), r, rr(-0.06, 0.06)); g.add(t);
+  });
+  const lean = nm(new THREE.Mesh(new THREE.TorusGeometry(0.026, 0.0085, 14, 34), RM), 'Sogan_halka_yatik');
+  lean.position.set(0.050, 0.0225, 0.026); lean.rotation.set(1.32, 0.6, 0.22); g.add(lean);
+  return g;
+});
+reg(() => { // Nachos
+  const g = new THREE.Group(); g.name = 'Nachos';
+  g.add(tabak(0.104, 'Nachos_tabak'));
+  const NM_ = mat('nacho', 0xE6B85A, { roughness: 0.8 });
+  const tri = new THREE.Shape(); tri.moveTo(-0.022, 0); tri.lineTo(0.022, 0); tri.lineTo(0, 0.036); tri.lineTo(-0.022, 0);
+  const geo = new THREE.ExtrudeGeometry(tri, { depth: 0.0022, bevelEnabled: false });
+  for (let i = 0; i < 11; i++) {
+    const c = nm(new THREE.Mesh(geo, NM_), `Nachos_cips_${i}`);
+    const a = (i / 11) * Math.PI * 2;
+    c.position.set(Math.cos(a) * rr(0.012, 0.028), 0.019 + rnd() * 0.016, Math.sin(a) * rr(0.012, 0.028));
+    c.rotation.set(rr(0.55, 1.05), a + rr(-0.4, 0.4), rr(-0.3, 0.3));
+    g.add(c);
+  }
+  const cheese = sph(0.030, mat('cheddar_sos', 0xE8A22A, { roughness: 0.5 }), 'Nachos_peynir_sos', 24);
+  cheese.scale.y = 0.22; cheese.position.y = 0.016; g.add(cheese);
+  for (let i = 0; i < 7; i++) {
+    const j = cyl(0.005, 0.005, 0.0025, mat('jalapeno', 0x4E7F2A, { roughness: 0.5 }), `Nachos_jalapeno_${i}`, 14);
+    j.position.set(rr(-0.024, 0.024), 0.026 + rnd() * 0.012, rr(-0.024, 0.024)); j.rotation.set(rr(0, 0.6), 0, rr(0, 0.6)); g.add(j);
+  }
+  return g;
+});
+reg(() => { // Çıtır Tavuk
+  const g = new THREE.Group(); g.name = 'Citir_Tavuk';
+  g.add(tabak(0.100, 'Citir_Tavuk_tabak'));
+  for (let i = 0; i < 7; i++) {
+    const s = sph(0.014, TAVUK, `Citir_Tavuk_parca_${i}`, 16);
+    s.scale.set(rr(1.5, 2.2), rr(0.6, 0.8), rr(0.7, 0.95));
+    s.position.set(rr(-0.026, 0.026), 0.012 + rnd() * 0.018, rr(-0.024, 0.024));
+    s.rotation.set(rr(-0.3, 0.3), rnd() * 3.14, rr(-0.3, 0.3));
+    g.add(s);
+  }
+  const l = leafMesh('Citir_Tavuk_maydanoz', 0.8); l.position.set(0.040, 0.008, -0.036); l.rotation.set(1.4, 0.5, 0); g.add(l);
+  return g;
+});
+reg(() => { // Kurabiye Tabağı
+  const g = new THREE.Group(); g.name = 'Kurabiye_Tabagi';
+  g.add(tabak(0.100, 'Kurabiye_tabak'));
+  const KM = mat('kurabiye', 0xC98F4E, { roughness: 0.85 });
+  const spots = [[0, 0, 0.014], [0.032, 0, -0.010], [-0.030, 0, -0.006], [0.006, 0.010, -0.030], [0.004, 0.011, 0.010]];
+  spots.forEach(([x, y, z], i) => {
+    const c = cyl(0.021, 0.021, 0.008, KM, `Kurabiye_${i}`, 28);
+    c.position.set(x, 0.010 + y, z); c.rotation.set(rr(-0.1, 0.1), rnd(), rr(-0.1, 0.1)); g.add(c);
+    for (let j = 0; j < 5; j++) {
+      const ch = sph(0.0028, CIKOLATA, `Kurabiye_${i}_damla_${j}`, 10);
+      const a = rnd() * 6.283, d = rnd() * 0.014;
+      ch.position.set(x + Math.cos(a) * d, 0.0145 + y, z + Math.sin(a) * d); g.add(ch);
+    }
+  });
+  return g;
+});
+
+reg(() => { // Serpme Kahvaltı
+  const g = new THREE.Group(); g.name = 'Serpme_Kahvalti';
+  const tray = cyl(0.145, 0.142, 0.008, AHSAP, 'Serpme_tepsi', 64); tray.position.y = 0.004; g.add(tray);
+  const fills = [PEYNIR, ZEYTIN, DOMATES, SALATALIK, mat('recel', 0xA32235, { roughness: 0.4 }),
+                 mat('tereyagi', 0xF2D98A, { roughness: 0.5 }), mat('bal_petek', 0xD79A26, { roughness: 0.35 })];
+  for (let i = 0; i < 7; i++) {
+    const a = (i / 7) * Math.PI * 2, d = 0.088;
+    const b = nm(new THREE.Mesh(new THREE.LatheGeometry(
+      [P(0,0),P(0.016,0),P(0.018,0.003),P(0.024,0.020),P(0.026,0.024),P(0.0235,0.024),P(0.0215,0.020),P(0.0155,0.004),P(0,0.004)], 32), PORSELEN), `Serpme_kase_${i}`);
+    b.position.set(Math.cos(a) * d, 0.008, Math.sin(a) * d); g.add(b);
+    const f = cyl(0.0215, 0.016, 0.014, fills[i], `Serpme_dolgu_${i}`, 24);
+    f.position.set(Math.cos(a) * d, 0.019, Math.sin(a) * d); g.add(f);
+  }
+  const basket = cyl(0.040, 0.036, 0.020, AHSAP, 'Serpme_ekmek_sepeti', 32); basket.position.y = 0.018; g.add(basket);
+  for (let i = 0; i < 4; i++) {
+    const sl = box(0.030, 0.010, 0.052, EKMEK_IC, `Serpme_ekmek_${i}`);
+    sl.position.set(rr(-0.014, 0.014), 0.030 + i * 0.004, rr(-0.010, 0.010)); sl.rotation.set(0.1, rnd(), 0.1); g.add(sl);
+  }
+  const tea = teaGlass('Serpme_cay_bardagi', 0x9C3A12); tea.position.set(0.100, 0.008, 0.075); tea.scale.setScalar(0.9); g.add(tea);
+  return g;
+});
+reg(() => { // Kahvaltı Tabağı
+  const g = new THREE.Group(); g.name = 'Kahvalti_Tabagi';
+  g.add(tabak(0.108, 'Kahvalti_tabak'));
+  for (let i = 0; i < 5; i++) { const c = box(0.016, 0.014, 0.016, PEYNIR, `Kahvalti_peynir_${i}`);
+    c.position.set(-0.040 + rr(-0.012, 0.012), 0.012, -0.020 + rr(-0.014, 0.014)); c.rotation.y = rnd(); g.add(c); }
+  for (let i = 0; i < 6; i++) { const o = sph(0.007, ZEYTIN, `Kahvalti_zeytin_${i}`, 14);
+    o.scale.set(1, 1.25, 1); o.position.set(0.036 + rr(-0.014, 0.014), 0.012, -0.026 + rr(-0.012, 0.012)); g.add(o); }
+  for (let i = 0; i < 4; i++) { const t = cyl(0.014, 0.014, 0.004, DOMATES, `Kahvalti_domates_${i}`, 22);
+    t.position.set(-0.030 + i * 0.010, 0.008 + i * 0.001, 0.032); t.rotation.set(0.25, 0, 0.1); g.add(t); }
+  for (let i = 0; i < 4; i++) { const s = cyl(0.012, 0.012, 0.004, SALATALIK, `Kahvalti_salatalik_${i}`, 22);
+    s.position.set(0.018 + i * 0.009, 0.008 + i * 0.001, 0.034); s.rotation.set(0.25, 0, -0.1); g.add(s); }
+  const egg = sph(0.016, AKI, 'Kahvalti_yumurta', 22); egg.scale.set(1, 1.25, 1); egg.position.set(0.004, 0.018, -0.006); g.add(egg);
+  return g;
+});
+reg(() => { // Menemen
+  const g = new THREE.Group(); g.name = 'Menemen';
+  const pan = nm(new THREE.Mesh(new THREE.LatheGeometry(
+    [P(0,0),P(0.052,0),P(0.056,0.004),P(0.062,0.028),P(0.064,0.032),P(0.0615,0.032),P(0.0595,0.028),P(0.0525,0.006),P(0,0.006)], 48),
+    mat('tava', 0x2E2A27, { roughness: 0.5, metalness: 0.25, side: THREE.DoubleSide })), 'Menemen_tava');
+  g.add(pan);
+  const handle = cyl(0.006, 0.006, 0.070, mat('tava_sap', 0x2E2A27, { roughness: 0.5, metalness: 0.25 }), 'Menemen_sap', 16);
+  handle.rotation.z = Math.PI / 2; handle.position.set(0.098, 0.024, 0); g.add(handle);
+  const food = cyl(0.058, 0.052, 0.018, mat('menemen', 0xCE5A22, { roughness: 0.6 }), 'Menemen_ic', 44);
+  food.position.y = 0.015; g.add(food);
+  for (let i = 0; i < 8; i++) { const p = sph(0.006, mat('biber', 0x4E7F2A, { roughness: 0.5 }), `Menemen_biber_${i}`, 12);
+    p.scale.set(1.6, 0.5, 0.8); p.position.set(rr(-0.040, 0.040), 0.024, rr(-0.040, 0.040)); p.rotation.y = rnd() * 3.14; g.add(p); }
+  const yolk = sph(0.013, SARISI, 'Menemen_yumurta', 18); yolk.scale.y = 0.55; yolk.position.set(0.008, 0.025, -0.006); g.add(yolk);
+  return g;
+});
+reg(() => { // Omlet
+  const g = new THREE.Group(); g.name = 'Omlet';
+  g.add(tabak(0.102, 'Omlet_tabak'));
+  const o = sph(0.042, mat('omlet', 0xEDC451, { roughness: 0.55 }), 'Omlet_govde', 28);
+  o.scale.set(1, 0.30, 0.62); o.position.y = 0.016; g.add(o);
+  const fold = sph(0.040, mat('omlet', 0xEDC451, { roughness: 0.55 }), 'Omlet_kat', 24);
+  fold.scale.set(0.92, 0.22, 0.40); fold.position.set(0.004, 0.024, 0.010); fold.rotation.y = 0.15; g.add(fold);
+  const l = leafMesh('Omlet_maydanoz', 0.8); l.position.set(0.034, 0.008, -0.030); l.rotation.set(1.4, 0.6, 0); g.add(l);
+  return g;
+});
+reg(() => { // Bal Kaymak
+  const g = new THREE.Group(); g.name = 'Bal_Kaymak';
+  g.add(tabak(0.096, 'Bal_Kaymak_tabak'));
+  const k = cyl(0.030, 0.030, 0.016, mat('kaymak', 0xFBF4E4, { roughness: 0.7 }), 'Bal_Kaymak_kaymak', 32);
+  k.position.set(-0.022, 0.014, 0.004); g.add(k);
+  const b = sph(0.026, mat('bal', 0xD79A26, { roughness: 0.28 }), 'Bal_Kaymak_bal', 26);
+  b.scale.y = 0.30; b.position.set(0.028, 0.010, -0.004); g.add(b);
+  const comb = box(0.026, 0.010, 0.026, mat('bal_kaymak_petek', 0xE0A63A, { roughness: 0.4 }), 'Bal_Kaymak_petek');
+  comb.position.set(0.028, 0.014, -0.004); comb.rotation.y = 0.3; g.add(comb);
+  return g;
+});
+reg(() => { // Simit & Peynir
+  const g = new THREE.Group(); g.name = 'Simit_Peynir';
+  g.add(tabak(0.104, 'Simit_tabak'));
+  const s = nm(new THREE.Mesh(new THREE.TorusGeometry(0.048, 0.014, 18, 44), mat('simit', 0xB1712C, { roughness: 0.85 })), 'Simit_halka');
+  s.rotation.x = Math.PI / 2; s.position.set(-0.008, 0.019, 0.004); g.add(s);
+  for (let i = 0; i < 40; i++) {
+    const a = rnd() * 6.283, t = rnd() * 6.283;
+    const sd = sph(0.0016, mat('susam', 0xF0E0B4, { roughness: 0.7 }), `Simit_susam_${i}`, 8);
+    const R = 0.048, rt = 0.0145;
+    sd.position.set(-0.008 + (R + rt * Math.cos(t)) * Math.cos(a), 0.019 + rt * Math.sin(t), 0.004 + (R + rt * Math.cos(t)) * Math.sin(a));
+    g.add(sd);
+  }
+  for (let i = 0; i < 3; i++) { const c = box(0.018, 0.012, 0.018, PEYNIR, `Simit_peynir_${i}`);
+    c.position.set(0.052 + rr(-0.008, 0.008), 0.011, -0.040 + i * 0.016); c.rotation.y = rnd(); g.add(c); }
+  return g;
+});
+
+function tostDilim(name, fillings) {
+  const shape = new THREE.Shape();
+  shape.moveTo(-0.042, 0); shape.lineTo(0.042, 0); shape.lineTo(-0.042, 0.058); shape.lineTo(-0.042, 0);
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: 0.010, bevelEnabled: false });
+  geo.rotateX(-Math.PI / 2);
+  const g = new THREE.Group(); g.name = name;
+  let y = 0;
+  const stack = [[EKMEK, 0.010], ...fillings, [EKMEK, 0.010]];
+  const CX = -0.0093, CZ = -0.0193, K = 0.93;
+  stack.forEach(([m, h], i) => {
+    const geo2 = new THREE.ExtrudeGeometry(shape, { depth: h, bevelEnabled: false });
+    geo2.rotateX(-Math.PI / 2);
+    const s = nm(new THREE.Mesh(geo2, m), `${name}_kat_${i}`);
+    const bread = (i === 0 || i === stack.length - 1);
+    if (bread) { s.position.y = y; }
+    else { s.scale.set(K, 1, K); s.position.set(CX * (1 - K), y, CZ * (1 - K)); }
+    g.add(s); y += h;
+  });
+  return g;
+}
+reg(() => { // Kaşarlı Tost
+  const g = new THREE.Group(); g.name = 'Kasarli_Tost';
+  g.add(tabak(0.100, 'Kasarli_Tost_tabak'));
+  const a = tostDilim('Kasarli_Tost_yarim_1', [[KASAR, 0.006]]);
+  a.position.set(-0.030, 0.005, 0.018); a.rotation.y = 0.28; g.add(a);
+  const b = tostDilim('Kasarli_Tost_yarim_2', [[KASAR, 0.006]]);
+  b.position.set(0.034, 0.005, -0.026); b.rotation.y = 0.28 + Math.PI; g.add(b);
+  return g;
+});
+reg(() => { // Karışık Tost
+  const g = new THREE.Group(); g.name = 'Karisik_Tost';
+  g.add(tabak(0.100, 'Karisik_Tost_tabak'));
+  const fill = [[KASAR, 0.005], [mat('sucuk', 0x8C2B22, { roughness: 0.5 }), 0.005], [KASAR, 0.005]];
+  const a = tostDilim('Karisik_Tost_yarim_1', fill);
+  a.position.set(-0.030, 0.005, 0.018); a.rotation.y = 0.28; g.add(a);
+  const b = tostDilim('Karisik_Tost_yarim_2', fill);
+  b.position.set(0.034, 0.005, -0.026); b.rotation.y = 0.28 + Math.PI; g.add(b);
+  return g;
+});
+reg(() => { // Kulüp Sandviç
+  const g = new THREE.Group(); g.name = 'Kulup_Sandvic';
+  g.add(tabak(0.108, 'Kulup_tabak'));
+  const fill = [[MARUL, 0.004], [TAVUK, 0.008], [EKMEK, 0.009], [DOMATES, 0.004], [mat('pastirma', 0x9C3B26, { roughness: 0.55 }), 0.005]];
+  [[-0.036, 0.022, 0.32], [0.038, -0.026, 0.32 + Math.PI]].forEach(([x, z, ry], i) => {
+    const s = tostDilim(`Kulup_yarim_${i + 1}`, fill);
+    s.position.set(x, 0.005, z); s.rotation.y = ry; g.add(s);
+    const pick = cyl(0.0017, 0.0017, 0.050, mat('kurdan', 0xD9C49A, { roughness: 0.7 }), `Kulup_kurdan_${i + 1}`, 8);
+    pick.position.set(x - 0.004, 0.037, z); g.add(pick);
+    const ol = sph(0.006, ZEYTIN, `Kulup_zeytin_${i + 1}`, 14); ol.scale.y = 1.2; ol.position.set(x - 0.004, 0.059, z); g.add(ol);
+  });
+  for (let i = 0; i < 6; i++) { const f = box(0.007, 0.007, 0.038, mat('patates', 0xE0B44F, { roughness: 0.74 }), `Kulup_patates_${i}`);
+    f.position.set(0.052 + rr(-0.012, 0.012), 0.010 + i * 0.005, 0.040 + rr(-0.010, 0.010)); f.rotation.set(rr(-0.3, 0.3), rnd() * 3, rr(-0.3, 0.3)); g.add(f); }
+  return g;
+});
+reg(() => { // Tavuklu Wrap
+  const g = new THREE.Group(); g.name = 'Tavuklu_Wrap';
+  g.add(tabak(0.104, 'Wrap_tabak'));
+  const LAV = mat('lavas', 0xEBD7A8, { roughness: 0.82 });
+  [[-0.024, 0.016, 0.5], [0.026, -0.016, 2.7]].forEach(([x, z, ry], i) => {
+    const w = cyl(0.021, 0.023, 0.084, LAV, `Wrap_rulo_${i + 1}`, 28);
+    w.position.set(x, 0.0345, z); w.rotation.set(Math.PI / 2 - 0.09, ry, 0); g.add(w);
+    const fill = cyl(0.0195, 0.0195, 0.007, TAVUK, `Wrap_ic_${i + 1}`, 24);
+    fill.position.copy(w.position); fill.rotation.copy(w.rotation);
+    fill.translateY(0.0405); g.add(fill);
+    const lettuce = sph(0.010, MARUL, `Wrap_marul_${i + 1}`, 14);
+    lettuce.scale.set(1.4, 0.5, 1.0);
+    lettuce.position.copy(fill.position); lettuce.rotation.copy(w.rotation);
+    lettuce.translateY(0.004); g.add(lettuce);
+  });
+  return g;
+});
+reg(() => { // Ton Balıklı Sandviç
+  const g = new THREE.Group(); g.name = 'Ton_Balikli_Sandvic';
+  g.add(tabak(0.104, 'Ton_tabak'));
+  const stack = [[EKMEK, 0.011], [MARUL, 0.004], [mat('ton_balik', 0xDCC79C, { roughness: 0.7 }), 0.010], [DOMATES, 0.004], [EKMEK, 0.011]];
+  [[-0.036, 0.020, 0.28], [0.038, -0.024, 0.28]].forEach(([x, z, ry], k) => {
+    let y = 0.005;
+    stack.forEach(([m, h], i) => {
+      const s = box(0.062, h, 0.040, m, `Ton_yarim_${k + 1}_kat_${i}`);
+      s.position.set(x, y + h / 2, z); s.rotation.y = ry; g.add(s); y += h;
+    });
+  });
+  return g;
+});
+
+reg(() => { // Mojito
+  const g = uzunBardak({ name: 'Mojito', r: 0.0345, h: 0.145, liq: 0xC9DE8C, iceN: 5,
+    straw: 0xC7452F, rimWheel: [LIME_K, LIME_I], mint: true, coaster: true });
+  const w = wheel(0.018, 'Mojito_ic_dilim', LIME_K, LIME_I);
+  w.position.set(0.010, 0.052, 0.012); w.rotation.set(1.35, 0.4, 0.25); g.add(w);
+  return g;
+});
+reg(() => { // Cosmopolitan
+  const g = new THREE.Group(); g.name = 'Cosmopolitan';
+  const bowl = [[0.006,0.062],[0.048,0.108],[0.050,0.110],[0.0472,0.110],[0.0035,0.066],[0.0030,0.062]];
+  g.add(stemGlass('Cosmopolitan_kadeh', bowl));
+  const liq = nm(new THREE.Mesh(new THREE.LatheGeometry(
+    [P(0,0.066),P(0.040,0.100),P(0,0.100)], 40), mat('cosmo_sivi', 0xCE2050, { roughness: 0.13, transparent: true, opacity: 0.95 })), 'Cosmopolitan_icecek');
+  g.add(liq);
+  const twist = nm(new THREE.Mesh(new THREE.TorusGeometry(0.010, 0.0016, 8, 24, Math.PI * 1.4), LMN_K), 'Cosmopolitan_kabuk');
+  twist.position.set(0.030, 0.104, 0.006); twist.rotation.set(0.8, 0.4, 0.2); g.add(twist);
+  return g;
+});
+reg(() => { // Espresso Martini
+  const g = new THREE.Group(); g.name = 'Espresso_Martini';
+  const bowl = [[0.006,0.062],[0.048,0.108],[0.050,0.110],[0.0472,0.110],[0.0035,0.066],[0.0030,0.062]];
+  g.add(stemGlass('Espresso_Martini_kadeh', bowl));
+  const liq = nm(new THREE.Mesh(new THREE.LatheGeometry(
+    [P(0,0.066),P(0.040,0.100),P(0,0.100)], 40), mat('espresso_sivi', 0x37200F, { roughness: 0.2 })), 'Espresso_Martini_icecek');
+  g.add(liq);
+  const crema = cyl(0.0398, 0.0398, 0.0022, mat('espresso_crema', 0xB98A56, { roughness: 0.6 }), 'Espresso_Martini_crema', 40);
+  crema.position.y = 0.1005; g.add(crema);
+  for (let i = 0; i < 3; i++) {
+    const b = sph(0.0042, mat('kahve_cekirdegi', 0x3A2113, { roughness: 0.45 }), `Espresso_Martini_cekirdek_${i}`, 12);
+    b.scale.set(1, 0.7, 0.65); b.position.set(Math.cos(i * 2.1) * 0.008, 0.1035, Math.sin(i * 2.1) * 0.008); g.add(b);
+  }
+  return g;
+});
+reg(() => { // Aperol Spritz
+  const g = new THREE.Group(); g.name = 'Aperol_Spritz';
+  const bowl = [[0.006,0.058],[0.040,0.078],[0.046,0.112],[0.044,0.130],[0.0412,0.130],[0.0432,0.112],[0.0372,0.079],[0.0035,0.062],[0.0030,0.058]];
+  g.add(stemGlass('Aperol_kadeh', bowl));
+  const liq = nm(new THREE.Mesh(new THREE.LatheGeometry(
+    [P(0,0.062),P(0.034,0.080),P(0.0405,0.118),P(0,0.118)], 44), mat('aperol_sivi', 0xE64F0E, { roughness: 0.13, transparent: true, opacity: 0.94 })), 'Aperol_icecek');
+  g.add(liq);
+  const ig = new THREE.Group(); ig.name = 'Aperol_buzlar'; ice(ig, 3, 0.016, 0.084, 0.110, 0.016); g.add(ig);
+  const w = wheel(0.019, 'Aperol_portakal', PRT_K, PRT_I);
+  w.position.set(0.036, 0.130, 0.006); w.rotation.set(Math.PI / 2, 0, 0.2); g.add(w);
+  return g;
+});
+reg(() => { // Alkolsüz Mojito
+  const g = uzunBardak({ name: 'Alkolsuz_Mojito', r: 0.0345, h: 0.145, liq: 0xB9DDA0, iceN: 5,
+    straw: 0x3E7C4B, rimWheel: [LIME_K, LIME_I], mint: true });
+  const w = wheel(0.018, 'Alkolsuz_Mojito_ic_dilim', LIME_K, LIME_I);
+  w.position.set(-0.010, 0.090, -0.010); w.rotation.set(1.42, -0.6, -0.2); g.add(w);
+  return g;
+});
+reg(() => { // Sangria
+  const g = new THREE.Group(); g.name = 'Sangria';
+  const bowl = [[0.006,0.056],[0.038,0.074],[0.044,0.104],[0.042,0.118],[0.0392,0.118],[0.0412,0.104],[0.0352,0.075],[0.0035,0.060],[0.0030,0.056]];
+  g.add(stemGlass('Sangria_kadeh', bowl));
+  const liq = nm(new THREE.Mesh(new THREE.LatheGeometry(
+    [P(0,0.060),P(0.032,0.076),P(0.0385,0.108),P(0,0.108)], 44), mat('sangria_sivi', 0x7E1526, { roughness: 0.13, transparent: true, opacity: 0.96 })), 'Sangria_icecek');
+  g.add(liq);
+  const o = wheel(0.014, 'Sangria_portakal', PRT_K, PRT_I); o.position.set(0.012, 0.090, 0.010); o.rotation.set(1.2, 0.4, 0.3); g.add(o);
+  const l = wheel(0.012, 'Sangria_limon', LMN_K, LMN_I); l.position.set(-0.014, 0.076, -0.008); l.rotation.set(1.35, -0.5, -0.2); g.add(l);
+  for (let i = 0; i < 4; i++) { const b = sph(0.0055, mat('uzum', 0x4B2140, { roughness: 0.4 }), `Sangria_uzum_${i}`, 12);
+    b.position.set(rr(-0.020, 0.020), rr(0.070, 0.100), rr(-0.020, 0.020)); g.add(b); }
+  return g;
+});
+
+/* ====================== public API ====================== */
+export const MODEL_IDS = ["Latte","Cappuccino","Americano","Mocha","Flat_White","Turk_Cayi","Yesil_Cay","Papatya_Cayi","Kis_Cayi","Adacayi","Sicak_Cikolata","Beyaz_Sicak_Cikolata","Salep","Iced_Latte","Iced_Americano","Frappe","Iced_Mocha","Cold_Brew","Limonata","Buzlu_Cay","Milkshake","Meyveli_Soda","San_Sebastian","Frambuazli_Cheesecake","Brownie","Tiramisu","Magnolia","Sufle","Profiterol","Patates_Kizartmasi","Sogan_Halkasi","Nachos","Citir_Tavuk","Kurabiye_Tabagi","Serpme_Kahvalti","Kahvalti_Tabagi","Menemen","Omlet","Bal_Kaymak","Simit_Peynir","Kasarli_Tost","Karisik_Tost","Kulup_Sandvic","Tavuklu_Wrap","Ton_Balikli_Sandvic","Mojito","Cosmopolitan","Espresso_Martini","Aperol_Spritz","Alkolsuz_Mojito","Sangria"];
+
+export function buildModel(id) {
+  const i = MODEL_IDS.indexOf(id);
+  return i >= 0 && FACTS[i] ? FACTS[i]() : null;
+}
+
+export function buildAllModels() {
+  return FACTS.map(f => f());
+}
